@@ -4,48 +4,23 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from maascommon.enums.boot_resources import BootResourceType
 from maasservicelayer.builders.interfaces import InterfaceBuilder
 from maasservicelayer.builders.switches import SwitchBuilder
 from maasservicelayer.context import Context
 from maasservicelayer.db.repositories.interfaces import InterfaceRepository
-from maasservicelayer.db.repositories.switches import (
-    SwitchClauseFactory,
-    SwitchesRepository,
-)
+from maasservicelayer.db.repositories.switches import SwitchesRepository
 from maasservicelayer.exceptions.catalog import AlreadyExistsException
 from maasservicelayer.models.switches import Switch
+from tests.fixtures.factories.bootresources import (
+    create_test_bootresource_entry,
+)
 from tests.fixtures.factories.switches import (
     create_test_switch,
     create_test_switch_interface,
 )
 from tests.maasapiserver.fixtures.db import Fixture
 from tests.maasservicelayer.db.repositories.base import RepositoryCommonTests
-
-
-class TestSwitchClauseFactory:
-    """Tests for SwitchClauseFactory query builder."""
-
-    def test_with_id(self) -> None:
-        clause = SwitchClauseFactory.with_id(1)
-        assert (
-            str(
-                clause.condition.compile(
-                    compile_kwargs={"literal_binds": True}
-                )
-            )
-            == "maasserver_switch.id = 1"
-        )
-
-    def test_with_ids(self) -> None:
-        clause = SwitchClauseFactory.with_ids([1, 2, 3])
-        assert (
-            str(
-                clause.condition.compile(
-                    compile_kwargs={"literal_binds": True}
-                )
-            )
-            == "maasserver_switch.id IN (1, 2, 3)"
-        )
 
 
 class TestSwitchesRepository(RepositoryCommonTests[Switch]):
@@ -187,3 +162,102 @@ class TestSwitchesRepository(RepositoryCommonTests[Switch]):
                     ),
                 ]
             )
+
+    async def test_get_with_target_image(
+        self,
+        fixture: Fixture,
+        repository_instance: SwitchesRepository,
+    ) -> None:
+        boot_resource = await create_test_bootresource_entry(
+            fixture,
+            rtype=BootResourceType.SYNCED,
+            name="onie/sonic",
+            architecture="amd64/generic",
+        )
+        await create_test_switch(
+            fixture,
+            target_image_id=boot_resource.id,
+        )
+
+        switches = await repository_instance.get_with_target_image(1, 1)
+        switch = next(
+            entry
+            for entry in switches.items
+            if entry.target_image_id == boot_resource.id
+        )
+
+        assert switch.target_image == "onie/sonic"
+
+    async def test_get_with_target_image_no_image(
+        self,
+        fixture: Fixture,
+        repository_instance: SwitchesRepository,
+    ) -> None:
+        boot_resource = await create_test_bootresource_entry(
+            fixture,
+            rtype=BootResourceType.SYNCED,
+            name="onie/sonic",
+            architecture="amd64/generic",
+        )
+        switch1_id = await create_test_switch(
+            fixture,
+            target_image_id=boot_resource.id,
+        )
+        switch2_id = create_test_switch(
+            fixture,
+            target_image_id=None,
+        )
+
+        switches = await repository_instance.get_with_target_image(1, 2)
+
+        assert switches.items[0].id == switch1_id
+        assert switches.items[0].target_image == "onie/sonic"
+        assert switches.items[1].id == switch2_id
+        assert switches.items[1].target_image is None
+
+    async def test_get_one_with_target_image(
+        self,
+        fixture: Fixture,
+        repository_instance: SwitchesRepository,
+    ) -> None:
+        boot_resource1 = await create_test_bootresource_entry(
+            fixture,
+            rtype=BootResourceType.SYNCED,
+            name="onie/sonic",
+            architecture="amd64/generic",
+        )
+        boot_resource2 = await create_test_bootresource_entry(
+            fixture,
+            rtype=BootResourceType.SYNCED,
+            name="onie/mellanox",
+            architecture="amd64/generic",
+        )
+        switch_id = await create_test_switch(
+            fixture,
+            target_image_id=boot_resource1.id,
+        )
+        await create_test_switch(fixture, target_iamge_id=boot_resource2.id)
+
+        switch = await repository_instance.get_one_with_target_image(switch_id)
+        assert switch is not None
+        assert switch.target_image == "onie/sonic"
+
+    async def test_get_one_with_boot_resource_doesnt_exist(
+        self, fixture: Fixture, repository_instance: SwitchesRepository
+    ) -> None:
+        switch = repository_instance.get_one_with_target_image(999)
+        assert switch is None
+
+    async def test_get_one_with_target_image_no_image(
+        self,
+        fixture: Fixture,
+        repository_instance: SwitchesRepository,
+    ) -> None:
+        switch_id = await create_test_switch(
+            fixture,
+            target_image_id=None,
+        )
+        switch = await repository_instance.get_one_with_target_image(switch_id)
+        assert switch is not None
+        assert switch.target_image is None
+        assert switch.target_image_id is None

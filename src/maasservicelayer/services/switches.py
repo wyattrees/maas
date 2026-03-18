@@ -15,7 +15,8 @@ from maasservicelayer.db.repositories.staticipaddress import (
 )
 from maasservicelayer.db.repositories.switches import SwitchesRepository
 from maasservicelayer.exceptions.catalog import NotFoundException
-from maasservicelayer.models.switches import Switch
+from maasservicelayer.models.base import ListResult
+from maasservicelayer.models.switches import Switch, SwitchWithTargetImage
 from maasservicelayer.services.base import BaseService
 from maasservicelayer.services.interfaces import InterfacesService
 from maasservicelayer.services.staticipaddress import StaticIPAddressService
@@ -43,6 +44,16 @@ class SwitchesService(BaseService[Switch, SwitchesRepository, SwitchBuilder]):
         self.staticipaddress_repository = staticipaddress_repository
         self.staticipaddress_service = staticipaddress_service
         self.interfaces_service = interfaces_service
+
+    async def get_one_with_target_image(
+        self, id: int
+    ) -> SwitchWithTargetImage | None:
+        return await self.repository.get_one_with_target_image(id)
+
+    async def get_with_target_image(
+        self, page: int, size: int
+    ) -> ListResult[SwitchWithTargetImage]:
+        return await self.repository.get_with_target_image(page, size)
 
     async def create_new_switch_and_interface(
         self,
