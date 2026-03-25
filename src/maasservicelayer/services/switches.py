@@ -2,7 +2,9 @@
 # GNU Affero General Public License version 3 (see the file LICENSE).
 
 from datetime import datetime, timezone
+from pathlib import Path
 
+from maascommon.utils.images import get_bootresource_store_path
 from maasservicelayer.builders.switches import SwitchBuilder
 from maasservicelayer.context import Context
 from maasservicelayer.db.filters import QuerySpec
@@ -37,12 +39,18 @@ class SwitchesService(BaseService[Switch, SwitchesRepository, SwitchBuilder]):
         staticipaddress_repository: StaticIPAddressRepository,
         staticipaddress_service: StaticIPAddressService,
         interfaces_service: InterfacesService,
+        boot_resources_service,
+        boot_resource_sets_service,
+        boot_resource_files_service,
     ):
         super().__init__(context, switches_repository)
         self.interfaces_repository = interfaces_repository
         self.staticipaddress_repository = staticipaddress_repository
         self.staticipaddress_service = staticipaddress_service
         self.interfaces_service = interfaces_service
+        self.boot_resources_service = boot_resources_service
+        self.boot_resource_sets_service = boot_resource_sets_service
+        self.boot_resource_files_service = boot_resource_files_service
 
     async def create_new_switch_and_interface(
         self,
@@ -142,6 +150,72 @@ class SwitchesService(BaseService[Switch, SwitchesRepository, SwitchBuilder]):
             return switch.target_image_id
 
         return None
+
+    async def get_installer_file_for_switch(
+        self, mac_address: str
+    ) -> tuple[Path, str, int] | None:
+        """Get the NOS installer file information for a switch.
+
+        This method combines all the logic needed to serve a NOS installer:
+        - Checks if switch has assigned installer
+        - Retrieves boot resource file details
+        - Verifies file exists on disk
+        - Updates switch heartbeat
+
+        Args:
+            mac_address: MAC address of the management interface
+
+        Returns:
+            Tuple of (file_path, filename, size) if installer assigned and file exists,
+            None if no installer assigned
+
+        Raises:
+            NotFoundException: If switch not found or file not found on disk
+        """
+        boot_resource_id = await self.check_installer_for_switch(mac_address)
+        if not boot_resource_id:
+            return None
+
+        # Get boot resource
+        boot_resource = await self.boot_resources_service.get_by_id(
+            id=boot_resource_id
+        )
+        if not boot_resource:
+            raise NotFoundException(
+                f"Boot resource {boot_resource_id} not found"
+            )
+
+        # Get latest complete resource set
+        resource_set = await self.boot_resource_sets_service.get_latest_complete_set_for_boot_resource(
+            boot_resource.id
+        )
+        if not resource_set:
+            raise NotFoundException(
+                f"No complete resource set for boot resource {boot_resource_id}"
+            )
+
+        # Get files in resource set
+        files = (
+            await self.boot_resource_files_service.get_files_in_resource_set(
+                resource_set.id
+            )
+        )
+        if not files:
+            raise NotFoundException(
+                f"No files in resource set {resource_set.id}"
+            )
+
+        # NOS installer images are self-extracting binaries with a single file
+        boot_file = files[0]
+        file_path = get_bootresource_store_path() / boot_file.filename_on_disk
+
+        # Verify file exists on disk
+        if not file_path.exists():
+            raise NotFoundException(
+                f"Boot resource file not found on disk: {file_path}"
+            )
+
+        return (file_path, boot_file.filename, boot_file.size)
 
     async def post_delete_hook(self, resource: Switch) -> None:
         """Clean up IP addresses on switch deletion
