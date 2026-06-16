@@ -1319,10 +1319,12 @@ class DHCPConfigActivity(ActivityBase):
                 default_dns_servers=default_dns_servers,
             )
 
-    async def get_hooks_libraries(self) -> dict[str, Any]:
-        return {"hooks-libraries": [self._get_kea_run_scripts_hook_config()]}
+    def get_hooks_libraries(self) -> dict[str, Any]:
+        return {
+            "hooks-libraries": [self._get_kea_run_scripts_hook_config()]
+        }
 
-    async def _get_kea_run_scripts_hook_config(
+    def _get_kea_run_scripts_hook_config(
         self,
     ) -> dict[str, Any]:
         helper_path = get_path("/usr/sbin/maas-kea-dhcp-helper")
