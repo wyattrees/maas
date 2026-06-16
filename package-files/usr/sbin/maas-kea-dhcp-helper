@@ -12,7 +12,7 @@ import json
 import socket
 from contextlib import closing
 
-DHCP_SOCK = os.getenv("MAAS_DHCP_SOCK", "")
+DHCP_SOCK = os.getenv("MAAS_DHCP_SOCK", "/var/snap/maas/common/maas/dhcpd.sock")
 
 def leases4_committed():
     num_leases = os.environ["LEASES4_SIZE"]
@@ -58,7 +58,7 @@ def notify(
     }
     # Lease time is required by the commit action and hostname is optional.
     if action == "commit":
-        notify_packet["lease_time"] = lease_time
+        notify_packet["lease_time"] = int(lease_time) if lease_time else None
         if (
             hostname is not None
             and len(hostname) > 0
