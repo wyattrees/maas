@@ -23,7 +23,7 @@ services:
     override: replace
     startup: disabled
     environment:
-      MAAS_DHCP_SOCK: /var/snap/maas/common/maas/dhcpd.sock"
+      MAAS_DHCP_SOCK: /var/snap/maas/common/maas/dhcpd.sock
     command: sh -c "exec systemd-cat -t dhcpd $SNAP/usr/bin/run-dhcpd"
 
   dhcpd6:
