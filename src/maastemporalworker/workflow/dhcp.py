@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from ipaddress import IPv4Address, IPv6Address
 from itertools import groupby
+import ssl
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from netaddr import IPAddress, IPNetwork
 from pydantic import IPvAnyAddress
 from sqlalchemy import and_, or_, select, true
@@ -16,8 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 import structlog
 from temporalio import workflow
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
+from maascommon.constants import SYSTEM_CA_FILE
 from maascommon.enums.ipaddress import IpAddressType
 from maascommon.enums.ipranges import IPRangeType
 from maascommon.enums.node import NodeTypeEnum
@@ -92,6 +95,7 @@ FETCH_HOSTS_FOR_UPDATE_ACTIVITY_NAME = "fetch-hosts-for-update"
 GET_OMAPI_KEY_ACTIVITY_NAME = "get-omapi-key"
 GET_ACTIVE_INTERFACES_FOR_AGENT_NAME = "get-active-interfaces-for-agent"
 GET_KEA_DHCP_DATA_FOR_AGENT_ACTIVITY_NAME = "get-kea-dhcp-data-for-agent"
+SET_KEA_DHCP_CONFIG_FOR_AGENT_ACTIVITY_NAME = "set-kea-dhcp-config-for-agent"
 
 # Executed on maasagent
 APPLY_DHCP_CONFIG_VIA_FILE_ACTIVITY_NAME = "apply-dhcp-config-via-file"
@@ -225,8 +229,25 @@ class GetDHCPDataForAgentParam:
     system_id: str
 
 
+@dataclass
+class ApplyKeaConfigParam:
+    config: dict[str, Any]
+    rack_ip: str
+    use_tls: bool
+    kea_api_port: str
+    ip_version: int
+
+
 class DHCPConfigActivity(ActivityBase):
     OMAPI_KEY_SECRET = OMAPIKeySecret()
+
+    def _create_session(self) -> ClientSession:
+        timeout = ClientTimeout(total=60 * 60, sock_read=120)
+        context = ssl.create_default_context(cafile=SYSTEM_CA_FILE)
+        tcp_conn = TCPConnector(ssl=context)
+        return ClientSession(
+            trust_env=True, timeout=timeout, connector=tcp_conn
+        )
 
     async def _get_agents_for_vlans(
         self, tx: AsyncConnection, vlan_ids: set[int]
@@ -1630,6 +1651,49 @@ class DHCPConfigActivity(ActivityBase):
         client_classes.append(cc)
 
         return client_classes
+
+    async def _send_kea_command(
+        self,
+        session: ClientSession,
+        url: str,
+        command: str,
+        service: str,
+        arguments: dict[str, Any],
+    ) -> None:
+        payload = {
+            "command": command,
+            "service": [service],
+            "arguments": arguments,
+        }
+        async with session.post(url, json=payload) as response:
+            body = await response.json()
+            if body.get("result") != 0:
+                reason = body.get("text")
+                raise ApplicationError(
+                    f"Failed to send Kea command {payload}: '{reason}'"
+                )
+
+    @activity_defn_with_context(
+        name=SET_KEA_DHCP_CONFIG_FOR_AGENT_ACTIVITY_NAME
+    )
+    async def apply_kea_configuration(
+        self, param: ApplyKeaConfigParam
+    ) -> None:
+        """
+        Apply the given Kea configuration and instruct the server to write the configuration to disk.
+        """
+        session = self._create_session()
+        url = f"http{'s' if param.use_tls else ''}://{param.rack_ip}:{param.kea_api_port}/"
+        await self._send_kea_command(
+            session,
+            url,
+            "config-set",
+            f"dhcp{param.ip_version}",
+            {f"Dhcp{param.ip_version}": param.config},
+        )
+        await self._send_kea_command(
+            session, url, "config-write", f"dhcp{param.ip_version}", {}
+        )
 
 
 @workflow.defn(name=CONFIGURE_DHCP_FOR_AGENT_WORKFLOW_NAME, sandboxed=False)
