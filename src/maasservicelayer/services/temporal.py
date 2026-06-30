@@ -13,6 +13,7 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError
 
+from maascommon.workflows.operation import OPERATION_UUID_SEARCH_ATTRIBUTE
 from maasservicelayer.context import Context
 from maasservicelayer.services.base import Service, ServiceCache
 from maastemporalworker.worker import (
@@ -68,6 +69,46 @@ class TemporalService(Service):
             raise TemporalServiceException(
                 f"Failed to cancel workflow {workflow_id}"
             ) from None
+
+    async def cancel_workflows(self, query: str):
+        temporal_client = await self.get_temporal_client()
+        async for wf in temporal_client.list_workflows(query=query):
+            hdl = temporal_client.get_workflow_handle(wf.id)
+            await hdl.cancel()
+
+    async def cancel_workflow_by_operation_uuid(
+        self, operation_uuid: str
+    ) -> None:
+        client = await self.get_temporal_client()
+        query = (
+            f"{OPERATION_UUID_SEARCH_ATTRIBUTE}='{operation_uuid}'"
+            " AND ExecutionStatus='Running'"
+        )
+        async for wf in client.list_workflows(query=query):
+            handle = client.get_workflow_handle(workflow_id=wf.id)
+            try:
+                await handle.cancel()
+            except RPCError:
+                raise TemporalServiceException(
+                    f"Failed to cancel workflow {wf.id} for operation {operation_uuid}"
+                ) from None
+
+    async def terminate_workflow_by_operation_uuid(
+        self, operation_uuid: str
+    ) -> None:
+        client = await self.get_temporal_client()
+        query = (
+            f"{OPERATION_UUID_SEARCH_ATTRIBUTE}='{operation_uuid}'"
+            " AND ExecutionStatus='Running'"
+        )
+        async for wf in client.list_workflows(query=query):
+            handle = client.get_workflow_handle(workflow_id=wf.id)
+            try:
+                await handle.terminate()
+            except RPCError:
+                raise TemporalServiceException(
+                    f"Failed to terminate workflow {wf.id} for operation {operation_uuid}"
+                ) from None
 
     async def terminate_workflow(self, workflow_id: str) -> None:
         client = await self.get_temporal_client()
@@ -160,8 +201,8 @@ class TemporalService(Service):
         parameter: Any | None = None,
         workflow_id: str | None = None,
         wait: bool | None = True,
-        *args: list[Any],
-        **kwargs: dict[str, Any],
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
         key = self._make_key(workflow_name, workflow_id)
         self._post_commit_workflows[key] = (

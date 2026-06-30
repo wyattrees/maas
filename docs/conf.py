@@ -19,6 +19,9 @@ extensions = []
 if (
     len(Path(__file__).parents) >= 2
     and not (Path(__file__).parents[1] / ".git").exists()
+    # A shallow clone has a .git/shallow file; sphinx_last_updated_by_git
+    # produces warnings when git log cannot traverse full history.
+    or (Path(__file__).parents[1] / ".git" / "shallow" ).exists()
 ):
     # Some surgery in order to accomodate the fact that
     # canonical_sphinx and sphinx_sitemap both require
@@ -159,7 +162,7 @@ html_context = {
     # Product tag image; the orange part of your logo, shown in the page header
     #
     # TODO: To add a tag image, uncomment and update as needed.
-    "product_tag": "_static/740dd401-MAAS logomark only.svg",
+    "product_tag": "_static/740dd401-MAAS_logomark_only.svg",
     # Your Discourse instance URL
     #
     # TODO: Change to your Discourse instance URL or leave empty.

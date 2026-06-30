@@ -4,6 +4,7 @@
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -1040,6 +1041,11 @@ InterfaceTable = Table(
         nullable=True,
     ),
     UniqueConstraint("node_config_id", "name"),
+    CheckConstraint(
+        "mac_address IS NULL OR mac_address = '' OR "
+        "mac_address ~ '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'",
+        name="maasserver_interface_mac_address_canonical",
+    ),
     Index("maasserver_interface_vlan_id_5f39995d", "vlan_id"),
     Index("maasserver_interface_numa_node_id_6e790407", "numa_node_id"),
     Index("maasserver_interface_node_config_id_a52b0f8a", "node_config_id"),
@@ -1773,7 +1779,7 @@ OperationTaskTable = Table(
     Column("finished_at", DateTime(timezone=True), nullable=True),
     Column("name", String(255), nullable=False),
     Column("status", String(64), nullable=False),
-    Column("result_errors", JSONB, nullable=True),
+    Column("result", JSONB, nullable=True),
     Column("task_number", Integer, nullable=False),
     Column(
         "operation_uuid",
@@ -1798,7 +1804,7 @@ OperationTable = Table(
     Column("finished", DateTime(timezone=True), nullable=True),
     Column("current_task", String(255), nullable=True),
     Column("parameters", JSONB, nullable=True),
-    Column("result_errors", JSONB, nullable=True),
+    Column("result", JSONB, nullable=True),
     Column("is_bulk", Boolean, nullable=False),
     Column(
         "parent_id",
@@ -1808,20 +1814,6 @@ OperationTable = Table(
     ),
     Column("user_id", Integer, ForeignKey("auth_user.id"), nullable=True),
     Index("maasserver_operation_parent_id_idx", "parent_id"),
-)
-MachineOperationTable = Table(
-    "maasserver_machine_operation",
-    METADATA,
-    Column(
-        "operation_uuid",
-        String(36),
-        ForeignKey("maasserver_operation.uuid"),
-        primary_key=True,
-    ),
-    Column(
-        "node_id", BigInteger, ForeignKey("maasserver_node.id"), nullable=False
-    ),
-    Index("maasserver_machine_operation_node_id_idx", "node_id"),
 )
 
 OpenFGATupleTable = Table(

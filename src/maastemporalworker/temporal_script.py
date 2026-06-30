@@ -6,9 +6,16 @@ import logging
 import signal
 
 import structlog
+from temporalio.api.enums.v1 import IndexedValueType
+from temporalio.api.operatorservice.v1 import (
+    AddSearchAttributesRequest,
+    ListSearchAttributesRequest,
+)
+from temporalio.client import Client
 
 from maasapiserver.settings import read_config
 from maascommon.worker import set_max_workers_count
+from maascommon.workflows.operation import OPERATION_UUID_SEARCH_ATTRIBUTE
 from maasservicelayer.context import Context
 from maasservicelayer.db import Database
 from maasservicelayer.db.locks import wait_for_startup
@@ -63,6 +70,10 @@ from maastemporalworker.workflow.msm import (
     MSMRestoreDefaultBootSourceWorkflow,
     MSMTokenRefreshWorkflow,
 )
+from maastemporalworker.workflow.operation import (
+    OperationActivity,
+    ReconcileOperationsWorkflow,
+)
 from maastemporalworker.workflow.power import (
     PowerActivity,
     PowerCycleWorkflow,
@@ -94,6 +105,28 @@ async def _setup_temporal_namespace(workers: list[TemporalWorker]) -> None:
     for w in workers:
         tasks.append(asyncio.create_task(w._setup_namespace()))
     await asyncio.wait(tasks)
+
+
+async def setup_search_attributes(client: Client) -> None:
+    search_attributes = {
+        OPERATION_UUID_SEARCH_ATTRIBUTE: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+    }
+    operator_service = client.service_client.operator_service
+    registered = await operator_service.list_search_attributes(
+        ListSearchAttributesRequest(namespace=TemporalWorker.namespace_name),
+    )
+    missing = {
+        name: value_type
+        for name, value_type in search_attributes.items()
+        if name not in registered.custom_attributes
+    }
+    if missing:
+        await operator_service.add_search_attributes(
+            AddSearchAttributesRequest(
+                namespace=TemporalWorker.namespace_name,
+                search_attributes=missing,
+            ),
+        )
 
 
 async def _start_temporal_workers(workers: list[TemporalWorker]) -> None:
@@ -166,6 +199,7 @@ async def main() -> None:
     deploy_activity = DeployActivity(db, services_cache, temporal_client)
     dhcp_activity = DHCPConfigActivity(db, services_cache, temporal_client)
     power_activity = PowerActivity(db, services_cache, temporal_client)
+    operation_activity = OperationActivity(db, services_cache, temporal_client)
 
     temporal_workers = [
         # All regions listen to a shared task queue. The first to pick up a task will execute it.
@@ -210,6 +244,8 @@ async def main() -> None:
                 PowerResetWorkflow,
                 # Tag Evaluation workflows
                 TagEvaluationWorkflow,
+                # Operation reconciliation workflows
+                ReconcileOperationsWorkflow,
             ],
             activities=[
                 # Boot resources activities
@@ -264,6 +300,12 @@ async def main() -> None:
                 tag_evaluation_activity.evaluate_tag,
                 # Power state activities
                 power_activity.set_power_state,
+                # Operation status tracking activities
+                operation_activity.update_operation_status,
+                operation_activity.update_current_task,
+                # Operation reconciliation activities
+                operation_activity.get_stuck_operations,
+                operation_activity.start_operation_workflow,
             ],
         ),
         # Individual region controller worker
@@ -291,8 +333,10 @@ async def main() -> None:
             ),
         )
 
-    # The temporal namespace must exist to be able to register schedules.
+    # The temporal namespace must exist to be able to register schedules
+    # and search attributes.
     await _setup_temporal_namespace(temporal_workers)
+    await setup_search_attributes(temporal_client)
 
     log.info("Setting up schedules")
     await setup_schedules(temporal_client)

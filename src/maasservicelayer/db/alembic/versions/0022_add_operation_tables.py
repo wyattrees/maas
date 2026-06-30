@@ -40,7 +40,7 @@ def upgrade() -> None:
         sa.Column("finished", sa.DateTime(timezone=True), nullable=True),
         sa.Column("current_task", sa.String(255), nullable=True),
         sa.Column("parameters", postgresql.JSONB(), nullable=True),
-        sa.Column("result_errors", postgresql.JSONB(), nullable=True),
+        sa.Column("result", postgresql.JSONB(), nullable=True),
         sa.Column("is_bulk", sa.Boolean(), nullable=False),
         sa.Column(
             "parent_id",
@@ -74,7 +74,7 @@ def upgrade() -> None:
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("status", sa.String(64), nullable=False),
-        sa.Column("result_errors", postgresql.JSONB(), nullable=True),
+        sa.Column("result", postgresql.JSONB(), nullable=True),
         sa.Column("task_number", sa.Integer(), nullable=False),
         sa.Column(
             "operation_uuid",
@@ -88,28 +88,6 @@ def upgrade() -> None:
         "maasserver_operation_task_operation_uuid_idx",
         "maasserver_operation_task",
         ["operation_uuid"],
-    )
-
-    # Create the maasserver_machine_operation table
-    op.create_table(
-        "maasserver_machine_operation",
-        sa.Column(
-            "operation_uuid",
-            sa.String(36),
-            sa.ForeignKey("maasserver_operation.uuid"),
-        ),
-        sa.Column(
-            "node_id",
-            sa.BigInteger(),
-            sa.ForeignKey("maasserver_node.id"),
-            nullable=False,
-        ),
-        sa.PrimaryKeyConstraint("operation_uuid"),
-    )
-    op.create_index(
-        "maasserver_machine_operation_node_id_idx",
-        "maasserver_machine_operation",
-        ["node_id"],
     )
 
 

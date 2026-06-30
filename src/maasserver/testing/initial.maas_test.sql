@@ -5679,6 +5679,7 @@ CREATE TABLE public.maasserver_interface (
     switch_id bigint,
     CONSTRAINT maasserver_interface_interface_speed_check CHECK ((interface_speed >= 0)),
     CONSTRAINT maasserver_interface_link_speed_check CHECK ((link_speed >= 0)),
+    CONSTRAINT maasserver_interface_mac_address_canonical CHECK (((mac_address IS NULL) OR (mac_address = ''::text) OR (mac_address ~ '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'::text))),
     CONSTRAINT maasserver_interface_sriov_max_vf_check CHECK ((sriov_max_vf >= 0))
 );
 
@@ -6478,16 +6479,6 @@ ALTER SEQUENCE public.maasserver_licensekey_id_seq OWNED BY public.maasserver_li
 
 
 --
--- Name: maasserver_machine_operation; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.maasserver_machine_operation (
-    operation_uuid character varying(36) NOT NULL,
-    node_id bigint NOT NULL
-);
-
-
---
 -- Name: maasserver_mdns_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -7023,7 +7014,7 @@ CREATE TABLE public.maasserver_operation (
     finished timestamp with time zone,
     current_task character varying(255),
     parameters jsonb,
-    result_errors jsonb,
+    result jsonb,
     is_bulk boolean NOT NULL,
     parent_id character varying(36),
     user_id integer
@@ -7054,7 +7045,7 @@ CREATE TABLE public.maasserver_operation_task (
     finished_at timestamp with time zone,
     name character varying(255) NOT NULL,
     status character varying(64) NOT NULL,
-    result_errors jsonb,
+    result jsonb,
     task_number integer NOT NULL,
     operation_uuid character varying(36) NOT NULL
 );
@@ -10151,7 +10142,7 @@ COPY openfga.tuple (store, object_type, object_id, relation, _user, user_type, u
 --
 
 COPY public.alembic_version (version_num) FROM stdin;
-0022
+0023
 \.
 
 
@@ -11550,14 +11541,6 @@ COPY public.maasserver_licensekey (id, created, updated, osystem, distro_series,
 
 
 --
--- Data for Name: maasserver_machine_operation; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY public.maasserver_machine_operation (operation_uuid, node_id) FROM stdin;
-\.
-
-
---
 -- Data for Name: maasserver_mdns; Type: TABLE DATA; Schema: public; Owner: -
 --
 
@@ -11697,7 +11680,7 @@ COPY public.maasserver_oidcrevokedtoken (id, token_hash, revoked_at, user_email,
 -- Data for Name: maasserver_operation; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-COPY public.maasserver_operation (id, uuid, op_type, resource_id, resource_type, status, created, updated, started, finished, current_task, parameters, result_errors, is_bulk, parent_id, user_id) FROM stdin;
+COPY public.maasserver_operation (id, uuid, op_type, resource_id, resource_type, status, created, updated, started, finished, current_task, parameters, result, is_bulk, parent_id, user_id) FROM stdin;
 \.
 
 
@@ -11705,7 +11688,7 @@ COPY public.maasserver_operation (id, uuid, op_type, resource_id, resource_type,
 -- Data for Name: maasserver_operation_task; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-COPY public.maasserver_operation_task (id, started_at, finished_at, name, status, result_errors, task_number, operation_uuid) FROM stdin;
+COPY public.maasserver_operation_task (id, started_at, finished_at, name, status, result, task_number, operation_uuid) FROM stdin;
 \.
 
 
@@ -14007,14 +13990,6 @@ ALTER TABLE ONLY public.maasserver_licensekey
 
 
 --
--- Name: maasserver_machine_operation maasserver_machine_operation_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.maasserver_machine_operation
-    ADD CONSTRAINT maasserver_machine_operation_pkey PRIMARY KEY (operation_uuid);
-
-
---
 -- Name: maasserver_mdns maasserver_mdns_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -15891,13 +15866,6 @@ CREATE INDEX maasserver_iprange_user_id_5d0f7718 ON public.maasserver_iprange US
 --
 
 CREATE INDEX maasserver_largefile_sha256_40052db0_like ON public.maasserver_largefile USING btree (sha256 varchar_pattern_ops);
-
-
---
--- Name: maasserver_machine_operation_node_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX maasserver_machine_operation_node_id_idx ON public.maasserver_machine_operation USING btree (node_id);
 
 
 --
@@ -18667,22 +18635,6 @@ ALTER TABLE ONLY public.maasserver_iprange
 
 ALTER TABLE ONLY public.maasserver_iprange
     ADD CONSTRAINT maasserver_iprange_user_id_5d0f7718_fk_auth_user_id FOREIGN KEY (user_id) REFERENCES public.auth_user(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: maasserver_machine_operation maasserver_machine_operation_node_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.maasserver_machine_operation
-    ADD CONSTRAINT maasserver_machine_operation_node_id_fkey FOREIGN KEY (node_id) REFERENCES public.maasserver_node(id);
-
-
---
--- Name: maasserver_machine_operation maasserver_machine_operation_operation_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.maasserver_machine_operation
-    ADD CONSTRAINT maasserver_machine_operation_operation_uuid_fkey FOREIGN KEY (operation_uuid) REFERENCES public.maasserver_operation(uuid);
 
 
 --
